@@ -17,33 +17,43 @@ BUTTON_MAP = {
 }
 
 def handle_event(evt):
-	kind = evt.get("kind")
-	if kind == "key":
-		keyinfo = evt["key"]
-		if keyinfo["type"] == "char":
-			keyobj = keyinfo["value"]
-		else:
-			keyobj = SPECIAL_KEY_MAP.get(keyinfo["value"])
-			if keyobj is None:
-				return
-		if evt["action"] == "down":
-			kctl.press(keyobj)
-		else:
-			kctl.release(keyobj)
-	elif kind == "mouse":
-		ev = evt.get("event")
-		if ev == "move":
-			mctl.move(evt.get("dx", 0), evt.get("dy", 0))
-		elif ev == "click":
-			btn = BUTTON_MAP.get(evt.get("button"))
-			if not btn:
-				return
-			if evt.get("action") == "down":
-				mctl.press(btn)
+	try:
+		kind = evt.get("kind")
+		if kind == "key":
+			keyinfo = evt["key"]
+			if keyinfo["type"] == "char":
+				keyobj = keyinfo["value"]
 			else:
-				mctl.release(btn)
-		elif ev == "scroll":
-			mctl.scroll(evt.get("dx", 0), evt.get("dy", 0))
+				keyobj = SPECIAL_KEY_MAP.get(keyinfo["value"])
+				if keyobj is None:
+					print(f"Unknown key: {keyinfo['value']}")
+					return
+			if evt["action"] == "down":
+				kctl.press(keyobj)
+			else:
+				kctl.release(keyobj)
+		elif kind == "mouse":
+			ev = evt.get("event")
+			if ev == "move":
+				dx = evt.get("dx", 0)
+				dy = evt.get("dy", 0)
+				if dx != 0 or dy != 0:
+					mctl.move(dx, dy)
+			elif ev == "click":
+				btn = BUTTON_MAP.get(evt.get("button"))
+				if not btn:
+					print(f"Unknown mouse button: {evt.get('button')}")
+					return
+				if evt.get("action") == "down":
+					mctl.press(btn)
+				else:
+					mctl.release(btn)
+			elif ev == "scroll":
+				dx = evt.get("dx", 0)
+				dy = evt.get("dy", 0)
+				mctl.scroll(dx, dy)
+	except Exception as e:
+		print(f"Error handling event: {e}")
 
 def serve(port: int, bind: str):
 	print(f"Client listening on {bind}:{port}")
@@ -51,28 +61,46 @@ def serve(port: int, bind: str):
 		s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		s.bind((bind, port))
 		s.listen(1)
+		print("Waiting for connection...")
 		while True:
-			conn, addr = s.accept()
-			print(f"Connected by {addr}")
-			Thread(target=handle_conn, args=(conn,), daemon=True).start()
+			try:
+				conn, addr = s.accept()
+				print(f"Connected by {addr}")
+				Thread(target=handle_conn, args=(conn,), daemon=True).start()
+			except Exception as e:
+				print(f"Error accepting connection: {e}")
 
 def handle_conn(conn: socket.socket):
 	buf = bytearray()
 	with conn:
 		while True:
-			data = conn.recv(4096)
-			if not data:
+			try:
+				data = conn.recv(4096)
+				if not data:
+					print("Connection closed by peer")
+					break
+				buf.extend(data)
+				for evt in decode_stream(buf):
+					handle_event(evt)
+			except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as e:
+				print(f"Connection closed: {e}")
 				break
-			buf.extend(data)
-			for evt in decode_stream(buf):
-				handle_event(evt)
+			except Exception as e:
+				print(f"Error in connection: {e}")
+				break
 
 def main():
 	parser = argparse.ArgumentParser(description="Software KVM - Client (Device B)")
-	parser.add_argument("--bind", default="0.0.0.0")
-	parser.add_argument("--port", type=int, default=5001)
+	parser.add_argument("--bind", default="0.0.0.0", help="IP address to bind to")
+	parser.add_argument("--port", type=int, default=5001, help="Port number")
 	args = parser.parse_args()
-	serve(args.port, args.bind)
+	
+	try:
+		serve(args.port, args.bind)
+	except KeyboardInterrupt:
+		print("\nClient stopped")
+	except Exception as e:
+		print(f"Error running client: {e}")
 
 if __name__ == "__main__":
 	main()

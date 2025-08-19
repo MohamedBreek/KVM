@@ -27,7 +27,7 @@ class RemoteSender:
 						self.sock = s
 					print(f"Connected to {self.host}:{self.port}")
 				except Exception as e:
-					print(f"Connect failed: {e}. Retrying in 2s...")
+					print(f"Connection failed: {e}. Retrying in 2s...")
 					time.sleep(2)
 			time.sleep(0.5)
 
@@ -38,7 +38,8 @@ class RemoteSender:
 			return
 		try:
 			s.sendall(encode_event(event))
-		except Exception:
+		except Exception as e:
+			print(f"Send error: {e}")
 			with self.lock:
 				try:
 					self.sock.close()
@@ -93,26 +94,36 @@ class KVMSwitch:
 		return None
 
 	def _key_to_payload(self, key):
-		if isinstance(key, keyboard.KeyCode) and key.char is not None:
-			return {"type": "char", "value": key.char}
-		else:
-			return {"type": "special", "value": str(key).split(".")[-1]}
+		try:
+			if isinstance(key, keyboard.KeyCode) and key.char is not None:
+				return {"type": "char", "value": key.char}
+			else:
+				return {"type": "special", "value": str(key).split(".")[-1]}
+		except Exception as e:
+			print(f"Error converting key: {e}")
+			return {"type": "special", "value": "unknown"}
 
 	def _on_key_press(self, key):
-		target = self._is_toggle_key(key)
-		if target:
-			self._switch(target)
-			return
-		if self.active == "remote":
-			self.sender.send({"kind": "key", "action": "down", "key": self._key_to_payload(key)})
+		try:
+			target = self._is_toggle_key(key)
+			if target:
+				self._switch(target)
+				return
+			if self.active == "remote":
+				self.sender.send({"kind": "key", "action": "down", "key": self._key_to_payload(key)})
+		except Exception as e:
+			print(f"Error handling key press: {e}")
 
 	def _on_key_release(self, key):
-		target = self._is_toggle_key(key)
-		if target:
-			# already switched on press; ignore release
-			return
-		if self.active == "remote":
-			self.sender.send({"kind": "key", "action": "up", "key": self._key_to_payload(key)})
+		try:
+			target = self._is_toggle_key(key)
+			if target:
+				# already switched on press; ignore release
+				return
+			if self.active == "remote":
+				self.sender.send({"kind": "key", "action": "up", "key": self._key_to_payload(key)})
+		except Exception as e:
+			print(f"Error handling key release: {e}")
 
 	def _on_move(self, x, y):
 		# We send relative moves to reduce jitter; pynput gives us absolute here; instead we track deltas.
@@ -122,31 +133,38 @@ class KVMSwitch:
 		pass  # We will rely on on_move with deltas via a separate listener below.
 
 	def _on_click(self, x, y, button, pressed):
-		if self.active != "remote":
-			return
-		self.sender.send({
-			"kind": "mouse",
-			"event": "click",
-			"button": str(button).split(".")[-1],
-			"action": "down" if pressed else "up",
-		})
+		try:
+			if self.active != "remote":
+				return
+			self.sender.send({
+				"kind": "mouse",
+				"event": "click",
+				"button": str(button).split(".")[-1],
+				"action": "down" if pressed else "up",
+			})
+		except Exception as e:
+			print(f"Error handling click: {e}")
 
 	def _on_scroll(self, x, y, dx, dy):
-		if self.active != "remote":
-			return
-		self.sender.send({
-			"kind": "mouse",
-			"event": "scroll",
-			"dx": dx,
-			"dy": dy
-		})
+		try:
+			if self.active != "remote":
+				return
+			self.sender.send({
+				"kind": "mouse",
+				"event": "scroll",
+				"dx": dx,
+				"dy": dy
+			})
+		except Exception as e:
+			print(f"Error handling scroll: {e}")
 
 def main():
 	parser = argparse.ArgumentParser(description="Software KVM - Server (Device A)")
-	parser.add_argument("--target", required=True, help="IP/hostname of Device B")
-	parser.add_argument("--port", type=int, default=5001)
+	parser.add_argument("--target", default="127.0.0.1", help="IP/hostname of Device B (default: 127.0.0.1 for local testing)")
+	parser.add_argument("--port", type=int, default=5001, help="Port number")
 	args = parser.parse_args()
 
+	print(f"Starting server to connect to {args.target}:{args.port}")
 	sender = RemoteSender(args.target, args.port)
 	switch = KVMSwitch(sender)
 
@@ -155,17 +173,20 @@ def main():
 	last = {"x": None, "y": None}
 
 	def on_move(x, y):
-		if switch.active != "remote":
+		try:
+			if switch.active != "remote":
+				last["x"], last["y"] = x, y
+				return
+			if last["x"] is None:
+				last["x"], last["y"] = x, y
+				return
+			dx = x - last["x"]
+			dy = y - last["y"]
 			last["x"], last["y"] = x, y
-			return
-		if last["x"] is None:
-			last["x"], last["y"] = x, y
-			return
-		dx = x - last["x"]
-		dy = y - last["y"]
-		last["x"], last["y"] = x, y
-		if dx or dy:
-			sender.send({"kind": "mouse", "event": "move", "dx": dx, "dy": dy})
+			if dx or dy:
+				sender.send({"kind": "mouse", "event": "move", "dx": dx, "dy": dy})
+		except Exception as e:
+			print(f"Error handling mouse movement: {e}")
 
 	# A second listener only for move tracking, no suppression (suppression handled by main mouse listener)
 	move_listener = mouse.Listener(on_move=on_move, suppress=False)
@@ -176,7 +197,9 @@ def main():
 		while True:
 			time.sleep(1)
 	except KeyboardInterrupt:
-		pass
+		print("\nServer stopped")
+	except Exception as e:
+		print(f"Error running server: {e}")
 
 if __name__ == "__main__":
 	main()
