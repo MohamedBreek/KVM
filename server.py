@@ -160,7 +160,7 @@ class KVMSwitch:
 
 def main():
 	parser = argparse.ArgumentParser(description="Software KVM - Server (Device A)")
-	parser.add_argument("--target", default="127.0.0.1", help="IP/hostname of Device B (default: 127.0.0.1 for local testing)")
+	parser.add_argument("--target", default="192.168.0.105", help="IP/hostname of Device B (default: 127.0.0.1 for local testing)")
 	parser.add_argument("--port", type=int, default=5001, help="Port number")
 	args = parser.parse_args()
 

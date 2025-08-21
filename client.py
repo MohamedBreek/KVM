@@ -91,7 +91,7 @@ def handle_conn(conn: socket.socket):
 
 def main():
 	parser = argparse.ArgumentParser(description="Software KVM - Client (Device B)")
-	parser.add_argument("--bind", default="0.0.0.0", help="IP address to bind to")
+	parser.add_argument("--bind", default="192.168.0.105", help="IP address to bind to")
 	parser.add_argument("--port", type=int, default=5001, help="Port number")
 	args = parser.parse_args()
 	
