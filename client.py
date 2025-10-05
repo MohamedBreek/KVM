@@ -1,5 +1,6 @@
 import argparse
 import socket
+import time
 from threading import Thread
 from pynput import keyboard, mouse
 from common import decode_stream
@@ -55,20 +56,26 @@ def handle_event(evt):
 	except Exception as e:
 		print(f"Error handling event: {e}")
 
-def serve(port: int, bind: str):
-	print(f"Client listening on {bind}:{port}")
-	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-		s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-		s.bind((bind, port))
-		s.listen(1)
-		print("Waiting for connection...")
-		while True:
-			try:
-				conn, addr = s.accept()
-				print(f"Connected by {addr}")
-				Thread(target=handle_conn, args=(conn,), daemon=True).start()
-			except Exception as e:
-				print(f"Error accepting connection: {e}")
+def serve(port: int, host: str):
+	"""Connect to remote server and process incoming events.
+
+	This function will attempt to connect to (host, port) and on
+	disconnection will retry with a short backoff.
+	"""
+	print(f"Client connecting to {host}:{port}")
+	while True:
+		try:
+			with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+				print(f"Attempting connection to {host}:{port}...")
+				s.connect((host, port))
+				print(f"Connected to {host}:{port}")
+				handle_conn(s)
+		except (ConnectionRefusedError, TimeoutError) as e:
+			print(f"Connection failed: {e}. Retrying in 1s...")
+			time.sleep(1)
+		except Exception as e:
+			print(f"Unexpected error in client connection loop: {e}. Retrying in 1s...")
+			time.sleep(1)
 
 def handle_conn(conn: socket.socket):
 	buf = bytearray()
